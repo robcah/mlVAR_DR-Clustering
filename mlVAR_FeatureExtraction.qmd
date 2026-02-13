@@ -1,0 +1,520 @@
+---
+title: "mlVAR_FeatureExtraction"
+author: "Roberto Cahuantzi"
+format: 
+  html:
+    self-contained: true
+    toc: true
+    theme: cosmo
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+editor: visual
+---
+
+# Loading relevant libraries
+
+```{r}
+library("tidyverse")
+library("psych")
+library("tseries")
+library("mlVAR")
+library("glue")
+library("RColorBrewer")
+library("nortest")
+library('dplyr')
+library("qgraph")
+```
+
+# Loading data
+
+```{r}
+out_folder = r'(.\Results\CorrectConsec\OriginalsUnimputed\Plots)'
+BRC_data <- read.csv('Data.csv'
+                     , header=T
+                     , sep=","
+                     ) %>% fill(everything()
+                                , .direction = "downup"
+                                )
+# Confirming date data as date type
+BRC_data$encounter_date <- as.Date(BRC_data$encounter_date)
+
+# Grouping data by participant
+BRC_data %>% group_by(participant_id)
+
+constructs_data <- (BRC_data 
+                %>% dplyr::select(where(is.numeric) 
+                                  & !participant_id
+                                  & !day_n
+                                  )
+                )
+```
+
+# Normality tests
+
+## Visual inspection
+
+```{r}
+constructs=colnames(constructs_data)
+colours=colorRampPalette(brewer.pal(8
+                                    , 'Dark2'
+                                    )
+)(length(constructs))
+# png("HistvNorm_OriginalData.png"
+#     , width=800
+#     , height=400
+# )
+par(mfrow=c(2, 4))
+for (i in seq_along(constructs))
+{
+  construct <- constructs[[i]]
+  data <- BRC_data[[construct]]
+  g <- hist(data
+            , breaks=14
+            , col=colours[[i]]
+            , xlab="value"
+            , main=construct
+            )
+  xfit <- seq(min(data)
+              , max(data)
+              , length=50
+  ) 
+  yfit <- dnorm(xfit
+                , mean=mean(data)
+                , sd=sd(data)
+  )
+  yfit <- yfit * diff(g$mids[1:2]) * length(data)
+  lines(xfit
+        , yfit
+        , col='black'
+        , lwd=2
+  )
+}
+# dev.off()
+# 
+# ### QQ Plot
+# png("QQPlot_OriginalData.png"
+#     , width=800
+#     , height=400
+# )
+# par(mfrow=c(2, 4))
+# for (i in seq_along(constructs))
+# {
+#   construct <- constructs[[i]]
+#   qqnorm(BRC_data[[construct]]
+#          , main=construct
+#          , col=colours[[i]]
+#          )
+#   qqline(BRC_data[[construct]])
+# }
+# dev.off()
+
+```
+
+## Anderson-Darling normality test
+
+This test to assess whether the data is sampled from a normal distribution, namely we assume normality. This test is not as robust as Shapiro-Wilk but it is not limited to samples \<= 5,000
+
+H0: normality, H1: non-normality
+
+H0 is true if p-value \> 0.05
+
+```{r}
+for (construct in constructs)
+{
+# print(construct)
+  ad_construct = ad.test(BRC_data[[construct]])
+  # %>% print
+  cat(paste(glue('AD test for {construct}, '
+                 , 'is it normally distributed?:'
+                 )
+            , '\n'
+            , glue('{all(ad_construct$p.value > 0.05)}')
+            , '\n'
+            )
+      )
+}
+```
+
+# Stationarity tests
+
+## Plotting for visual intuition of Stationarity
+
+```{r}
+valid_participants=(BRC_data 
+                    %>% group_by(participant_id)
+                    %>% count()
+                    %>% arrange(desc(n))
+                    )$participant_id
+constructs=colnames(constructs_data)
+colours = colorRampPalette(brewer.pal(8
+                                      , 'Dark2'
+                                      )
+                           )(length(constructs))
+
+for (i in seq_along(constructs))
+{
+  construct = constructs[i]
+  y_label=sprintf("%s rating", construct)
+  plot=(BRC_data 
+        %>% subset(participant_id
+                   %in% valid_participants
+                   )
+        %>% ggplot(aes(x=day_n,
+                       y=.data[[construct]]
+                       )
+                   )
+        + geom_line(color=colours[i])
+        + scale_x_continuous("Date time")
+        + scale_y_continuous(construct)
+        + facet_wrap(~participant_id
+                     , ncol=6
+                     , shrink=FALSE
+                     )
+        + ylab(y_label)
+        + theme(panel.grid.minor=element_blank() #removes minor grid lines
+                , panel.grid.major=element_blank()
+                , strip.text=element_text(size=5
+                                          , margin=margin()
+                                          )
+                , axis.text.x=element_text(size=6)
+                , axis.text.y=element_text(size=6)
+                )
+        )
+  print(plot)
+}
+
+```
+
+## Kwiatkowski-Phillips-Schmidt-Shin test
+
+Kwiatkowski-Phillips-Schmidt-Shin test: are used for testing a null hypothesis that an observable time series is stationary around a deterministic trend (i.e. trend-stationary) against the alternative of a unit root
+
+Indicated by the parameter `null="Trend"` of `tseries::kpss.test` .
+
+H0: trend-stationary, H1: non-stationary
+
+data is not stationary
+
+```{r KPSS_stationarity_checks, warning=FALSE}
+constructs = colnames(constructs_data)
+participants = unique(BRC_data$participant_id)
+m = length(participants)
+
+for (construct in constructs)
+  {
+  kpps_p_construct <- c()
+  for(p in participants)
+    {
+    BRC_construct_participant = (BRC_data
+                                 [[construct]]
+                                 [BRC_data$participant_id==p]
+                                 )
+    randomness <- tseries::kpss.test(na.exclude(BRC_construct_participant)
+                                     , lshort=TRUE
+                                     , null="Trend"
+                                     )
+    kpps_p_construct <- c(kpps_p_construct,
+                          randomness$p.value
+    )
+    }
+  kpps_p_construct  <- cbind(participants
+                             , kpps_p_construct
+                             )
+  cat(paste('KPSS test Bonferroni(alpha<0.05,'
+            , glue('m={m}) for {construct},')
+            , 'is it trend-stationary?:'
+            , '\n'
+            , glue('{all(kpps_p_construct[,2] < 0.05/m)}')
+            , '\n'
+          )
+        )
+  }
+```
+
+## Detrending
+
+```{r}
+consec_detrend=(BRC_data
+                %>% arrange(dataset,
+                            participant_id,
+                            day_n
+                            )
+                %>% dplyr::select(dataset,
+                          participant_id,
+                          day_n,
+                          everything()
+                          )
+                )
+
+# Sorted by volume
+participants=(BRC_data 
+              %>% group_by(participant_id)
+              %>% count()
+              %>% arrange(desc(n)) # _n_ is the counts column
+              )$participant_id
+
+constructs = colnames(BRC_data)[-1:-4]
+for (construct in constructs)
+{
+  for(participant in valid_participants)
+  {
+    detrended_data <- (lm(na.exclude(consec_detrend[[construct]]
+                                     ~ consec_detrend$day_n,
+                                     data=consec_detrend
+                                     [consec_detrend$participant_id==participant]
+                                     )
+                          )
+                       %>% resid()
+                       )
+  }
+  consec_detrend[[construct]][!is.na(consec_detrend[[construct]])] <- detrended_data
+}
+```
+
+## Visual confirmation of detrending
+
+```{r}
+valid_participants=(consec_detrend 
+                    %>% group_by(participant_id)
+                    %>% count()
+                    %>% arrange(desc(n))
+                    # %>% head(36) # This is to limit the plots, otherwise they're not visible
+                    )$participant_id
+
+constructs=colnames(constructs_data)
+colours = colorRampPalette(brewer.pal(8
+                                      , 'Dark2'
+                                      )
+                           )(length(constructs))
+
+for (i in seq_along(constructs))
+{
+  construct = constructs[i]
+  y_label=sprintf("%s rating", construct)
+  plot=(consec_detrend 
+        %>% subset(participant_id
+                   %in% valid_participants
+                   )
+        %>% ggplot(aes(x=day_n,
+                       y=.data[[construct]]
+                       )
+                   )
+        + geom_line(color=colours[i])
+        + scale_x_continuous("Date time")
+        + scale_y_continuous(construct)
+        + facet_wrap(~participant_id
+                     , ncol=6
+                     , shrink=FALSE
+                     )
+        + ylab(y_label)
+        + theme(panel.grid.minor=element_blank() #removes minor grid lines
+                , panel.grid.major=element_blank()
+                , strip.text=element_text(size=5
+                                          , margin=margin()
+                                          )
+                , axis.text.x=element_text(size=6)
+                , axis.text.y=element_text(size=6)
+                )
+        )
+  print(plot)
+}
+```
+
+# mlVAR networks analysis
+
+```{r}
+constructs = colnames(constructs_data)#[1:7] # comment for all constructs
+
+network_detrend <- mlVAR(consec_detrend
+                         , vars=constructs
+                         , idvar="participant_id"
+                         , estimator="default"
+                         , contemporaneous="correlated"
+                         , temporal="correlated"
+                         , beepvar="day_n"
+                         , lags=1
+                         )
+```
+
+## Plotting network results
+
+```{r}
+for (i in mapply(list,
+               c(0.00625, 0.003125, 0.00625),
+               c('temporal'
+                 , 'between'
+                 , 'contemporaneous'
+                 ),
+               SIMPLIFY=F)
+     )
+  {
+  a = i[[1]]
+  type = i[[2]]
+  xi_detrend <- plot(network_detrend
+                     , type
+                     , layout="circle"
+                     , rule="and"
+                     , legend=FALSE
+                     , edge.labels=T
+                     , alpha=a
+                     , cut=0.1
+                     , theme="TeamFortress"
+                     )
+  qgraph(xi_detrend
+         , filetype='pdf'
+         , filename=file.path(out_folder
+                              , glue('mlvar_{type}'
+                                     )
+                              )
+         )
+  }
+```
+
+# Saving the subject specific structures as a CSV dataframe
+
+$\mu^{(p)}$: Stationary means of subject $p$
+
+$B^{(p)}$: Within-person temporal relationships of subject $p$
+
+$\Gamma_\Theta^{(p)}$: Least square regression matrix of subject $p$
+
+$\Theta^{(p)}$: Within-person contemporaneous relationships of subject $p$
+
+```{r}
+participants_results <- data.frame()
+
+for (i in seq_along(network_detrend$IDs
+                    )
+     ){
+  id_ = network_detrend$IDs[[i]]
+  
+      ### Extraction of mu: stationary means by
+      ### subject
+      mu <- (network_detrend
+             $results
+             $mu
+             $subject
+             [[i]]
+             %>% t()
+             %>% as.data.frame()
+             )
+      colnames(mu) <- apply(colnames(mu) %>% as.data.frame()
+                            , 1
+                            , function(x) glue('mu_{x}')
+                            )
+      
+      ### Extraction of Beta: within-person temporal
+      ### relationships by subject
+      beta = (network_detrend
+              $results
+              $Beta
+              $subject
+              [[i]]
+              )
+      combinations <- (expand.grid(df_columns=colnames(beta)
+                                   , df_columns=colnames(beta)
+                                   )
+                       )
+      combinations$combined <- (apply(combinations
+                                      , 1
+                                      , function(x) glue('beta_{paste(x, collapse = "_")}')
+                                      )
+                                )
+      df_values <- as.vector(as.matrix(beta))
+      beta <- (data.frame(matrix(df_values
+                                 , nrow=1
+                                 , dimnames=list(NULL
+                                                 , combinations$combined
+                                                 )
+                                 )
+                          )
+               )
+      
+      ### Extraction of Gamma_Theta: least squares 
+      ### regression matrix by subject
+      gamma_theta = (network_detrend
+                     $results
+                     $Gamma_Theta
+                     $subject
+                     [[i]]
+                     )
+      combinations <- (expand.grid(df_columns=colnames(gamma_theta)
+                                   , df_columns=colnames(gamma_theta)
+                                   )
+                       )
+      combinations$combined <- (apply(combinations
+                                      , 1
+                                      , function(x) glue('gamma_theta_{paste(x, collapse = "_")}')
+                                      )
+                                )
+      df_values <- as.vector(as.matrix(gamma_theta))
+      gamma_theta <- (data.frame(matrix(df_values
+                                        , nrow=1
+                                        , dimnames=list(NULL
+                                                        , combinations$combined
+                                                        )
+                                        )
+                                 )
+                      )
+      
+      ### Extraction of Theta: within-person 
+      ### contemporaneous relationships by subject
+      dfs = list()
+      atts_ = attributes(network_detrend
+                         $results
+                         $Theta
+                         )[[1]]
+      for (att_ in atts_){
+        df0 = (network_detrend
+               $results
+               $Theta
+               [[att_]]
+               $subject
+               [[i]]
+               %>% as.data.frame()
+               )
+        combinations = (arrangements::combinations(colnames(df0)
+                                                  , 2
+                                                  , replace=T
+                                                  )
+                        %>% as.data.frame()
+                        )
+        combinations$combined <- (apply(combinations
+                                      , 1
+                                      , function(x) glue('theta_{att_}_{paste(as.character(x), collapse = "_")}')
+                                      )
+                                  )
+        m = as.matrix(df0)
+        df_values <- as.vector(m[upper.tri(m, diag=T) %>% t()])
+        df <- (data.frame(matrix(df_values
+                                 , nrow=1
+                                 , dimnames=list(NULL
+                                                 , combinations$combined
+                                                 )
+                                 )
+                          )
+               )
+      dfs[[att_]] = df
+      }
+      theta = dfs %>% reduce(cross_join)
+      df_final = list(mu
+                      , beta
+                      , gamma_theta
+                      , theta
+                      ) %>% reduce(cross_join)
+      if (i!=1){
+        names(df_final) <- old_names
+        }else{old_names <- names(df_final)}
+    rownames(df_final) <- id_
+  participants_results = rbind(participants_results
+                               , df_final
+                               )
+}
+  write.csv(participants_results,
+            file.path(out_folder,
+                      glue('mlvar_participantsstatistics.csv')
+                      ),
+            )
+```
