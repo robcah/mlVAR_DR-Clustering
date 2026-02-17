@@ -12,7 +12,7 @@ This produces the file `mlvar_participantsstatistics.csv`
 
 1. From an Anaconda prompt install environment `mlvar_DRC`:\
 `conda env create --file mlvar_DRC.yaml`\
-It is possible you will need to install `Microsoft Visual C++ v14.0` or grater.
+It is possible you will need to install `Microsoft Visual C++ v14.0` or greater.
 
 1. Activate environment and run Jupyter:\
 `conda activate mlVAR_DRC`\
