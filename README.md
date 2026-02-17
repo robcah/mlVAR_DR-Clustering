@@ -11,7 +11,7 @@ Supporting materials for paper: _Emergence of clusters of subjects with psychosi
 This produces the file `mlvar_participantsstatistics.csv`
 
 1. From an Anaconda prompt install environment `mlvar_DRC`:\
-`conda env create --file mlvar_DRC.yaml`
+`conda env create --file mlvar_DRC.yaml`\
 It is possible you will need to install `Microsoft Visual C++ v14.0` or grater.
 
 1. Activate environment and run Jupyter:\
@@ -22,10 +22,7 @@ It is possible you will need to install `Microsoft Visual C++ v14.0` or grater.
 
 1. in RStudio (or R) run the file:\
 `mlVAR_FeatureExtraction.qmd`
-This will produce the files:
-`mlvar_cluster#_temporal.csv`
-`mlvar_cluster#_contemporaneous.csv`
-`mlvar_cluster#_between.csv`
+This will produce the files: `mlvar_cluster#_temporal.csv`, `mlvar_cluster#_contemporaneous.csv`, `mlvar_cluster#_between.csv`\
 Where # is a number from 0 to 3.
 
 1. in Jupyter notebook run the file `mlVAR_ManuscriptPlots.ipynb`to reproduce the figures in the manuscript.
