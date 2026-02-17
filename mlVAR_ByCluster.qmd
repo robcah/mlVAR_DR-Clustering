@@ -1,0 +1,129 @@
+---
+title: "mlVAR_ByCluster"
+author: "Roberto Cahuantzi"
+format: 
+  html:
+    self-contained: true
+    toc: true
+    theme: cosmo
+knitr:
+  opts_chunk: 
+    warning: false
+    message: false
+editor: visual
+---
+
+# Loading libraries
+
+```{r}
+library("tidyverse")
+library("psych")
+library("tseries")
+library("mlVAR")
+library("glue")
+library('dplyr')
+```
+
+# Networks by mlVAR clusters
+
+```{r}
+in_folder = r'(.)'
+in_file = 'BRC_data+clusters.csv'
+
+cluster_data <- read.csv(file.path(in_folder
+                                   , in_file
+                                   )
+                         , header=T
+                         , sep=","
+                         , stringsAsFactors=F
+                         )
+```
+
+## mlVAR analysis and RDS objects saving
+
+```{r}
+
+out_folder = in_folder
+mlVAR_networks = c()
+clusters = (cluster_data 
+              %>% group_by(cluster
+                           )
+              %>% count()
+              %>% arrange(desc(n))
+              )$cluster
+
+constructs = colnames(cluster_data)[-1:-5]
+
+for (c in clusters)
+  {c_data=(cluster_data
+           %>% filter(cluster==c)
+           )
+  participants = c_data$participant_id %>% unique()
+  print(paste(glue('Cluster {c}, n={length(participants)}')
+              , glue(', c_data dims=({dim(c_data)[[1]]},{dim(c_data)[[2]]})')
+              )
+        )
+  for (construct in constructs)
+    {
+    for(participant in participants)
+      {
+      c_data[[construct]] <- (lm(na.exclude(c_data[[construct]]
+                                            ~ c_data$day_n
+                                            , data=c_data
+                                            [c_data$participant_id==participant]
+                                            )
+                                 )
+                              %>% resid()
+      )
+      }
+    }
+  networks <- mlVAR(c_data
+                    , vars=constructs
+                    , idvar="participant_id"
+                    , estimator="default"
+                    , contemporaneous="correlated"
+                    , temporal="correlated"
+                    , beepvar="day_n"
+                    , lags=1
+                    )
+  print(glue('c_data dims=({dim(c_data)[[1]]},{dim(c_data)[[2]]})'))
+  key = glue('cluster{c}')
+  mlVAR_networks[[key]] = list(networks)
+  
+  # ### Saving mlVAR objects
+  # out_file = glue('mlVARr_cluster{c}_network_jit+detrend.rds')
+  # saveRDS(network_detrend
+  #         , file.path(out_folder
+  #                     , out_file
+  #                     )
+  #        )
+  }
+```
+
+## Saving cluster networks as CSV
+
+```{r}
+out_folder = in_folder
+
+for (i in mlVAR_networks %>% names())
+  {
+  s = mlVAR_networks[[i]][[1]]%>%summary()
+  for (type in c('contemporaneous'
+                 , 'temporal'
+                 , 'between'
+                 )
+       )
+    {
+    c = str_replace(i
+                    , '_'
+                    , ''
+                    )
+    write.csv(s[[type]],
+              file.path(out_folder,
+                        glue('mlvar_{c}_{type}.csv')
+                        ),
+              row.names=F,
+    )
+    }
+  }
+```
